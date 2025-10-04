@@ -1,0 +1,9 @@
+streamlit>=1.31.0
+biopython>=1.83
+
+# IMPORTANT NOTE:
+# The following commands must be installed in the server environment (they are not Python packages)
+# 1. Clustal Omega (clustalo)
+# 2. HMMER (hmmbuild, hmmsearch, hmmscan)
+# When deploying on Streamlit Cloud, these external tools (Clustal Omega and HMMER)
+# must be listed in a separate 'packages.txt' file.

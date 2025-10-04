@@ -1,0 +1,37 @@
+# 🧬 HMMcatcher (Beta)
+
+**HMMcatcher** is a Streamlit-based bioinformatics tool for building and searching profile Hidden Markov Models (HMMs) from protein sequences.  
+It automates the workflow from multiple sequence alignment to HMM-based search and Pfam domain validation — designed for researchers studying transcription factors, enzymes, or any protein family with conserved domains.
+
+---
+
+## ⚙️ Features
+- Multiple sequence alignment using **Clustal Omega**.  
+- Profile HMM construction with **HMMER (hmmbuild)**.  
+- Homolog search using **hmmsearch** with adjustable E-value thresholds.  
+- Sequence extraction and filtering via **Biopython**.  
+- Domain validation using **hmmscan** against Pfam.  
+- Fully interactive interface built with **Streamlit**, including file upload and result downloads.  
+
+---
+
+## 🧠 Applications
+
+**HMMcatcher** can be used for:
+
+- Identification of **transcription factors** (e.g., WRKY, NAC, MYB).  
+- Comparative **protein family analysis**.  
+- **Functional annotation** and homolog discovery.  
+- **Curation of proteomes** before phylogenetic or expression studies.
+
+---
+
+## 🚀 Deployment
+
+**HMMcatcher** runs directly in your browser through [Streamlit Cloud](https://streamlit.io/cloud).
+
+To deploy or test locally:
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
