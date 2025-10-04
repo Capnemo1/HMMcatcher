@@ -1,17 +1,21 @@
 # 🧬 HMMcatcher (Beta)
 
-**HMMcatcher** is a Streamlit-based bioinformatics tool for building and searching profile Hidden Markov Models (HMMs) from protein sequences.  
-It automates the workflow from multiple sequence alignment to HMM-based search and Pfam domain validation — designed for researchers studying transcription factors, enzymes, or any protein family with conserved domains.
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17266955.svg)](https://doi.org/10.5281/zenodo.17266955)
+
+**HMMcatcher** is a lightweight **Streamlit-based bioinformatics tool** for building and searching profile Hidden Markov Models (HMMs) from protein sequences.  
+It automates the entire workflow — from multiple sequence alignment to HMM-based homolog search and optional Pfam domain validation.  
+Designed for researchers studying **transcription factors, enzymes, or any conserved protein family**.
 
 ---
 
 ## ⚙️ Features
-- Multiple sequence alignment using **Clustal Omega**.  
-- Profile HMM construction with **HMMER (hmmbuild)**.  
-- Homolog search using **hmmsearch** with adjustable E-value thresholds.  
-- Sequence extraction and filtering via **Biopython**.  
-- Domain validation using **hmmscan** against Pfam.  
-- Fully interactive interface built with **Streamlit**, including file upload and result downloads.  
+- 🔹 Multiple sequence alignment using **Clustal Omega**  
+- 🔹 Profile HMM construction with **HMMER (hmmbuild)**  
+- 🔹 Homolog search using **hmmsearch** (adjustable *E-value*)  
+- 🔹 Sequence extraction and filtering via **Biopython**  
+- 🔹 (Optional) Domain validation using **hmmscan** against Pfam  
+- 🔹 Fully interactive interface built with **Streamlit**  
+- 🔹 Results available for download in standard formats (`.sto`, `.hmm`, `.tsv`, `.fasta`)
 
 ---
 
@@ -19,19 +23,22 @@ It automates the workflow from multiple sequence alignment to HMM-based search a
 
 **HMMcatcher** can be used for:
 
-- Identification of **transcription factors** (e.g., WRKY, NAC, MYB).  
-- Comparative **protein family analysis**.  
-- **Functional annotation** and homolog discovery.  
-- **Curation of proteomes** before phylogenetic or expression studies.
+- 🧩 Identification of **transcription factors** (e.g., WRKY, NAC, MYB)  
+- 🧬 Comparative **protein family analysis**  
+- 📊 **Functional annotation** and homolog discovery  
+- 🧫 **Curation of proteomes** before phylogenetic or expression studies  
 
 ---
 
 ## 🚀 Deployment
 
-**HMMcatcher** runs directly in your browser through [Streamlit Cloud](https://streamlit.io/cloud).
+**Run directly in your browser:**  
+🔗 [Streamlit Cloud App](https://hmmcatcher-ayyigauaqejjt4ndaugkp9.streamlit.app)
 
-To deploy or test locally:
+**Or deploy locally:**
 
 ```bash
+git clone https://github.com/Capnemo1/HMMcatcher.git
+cd HMMcatcher
 pip install -r requirements.txt
 streamlit run app.py
