@@ -5,56 +5,56 @@ from pathlib import Path
 from Bio import SeqIO
 import streamlit as st
 
-# --- Configuración Inicial ---
+# --- Initial Configuration ---
 st.set_page_config(
     page_title="HMMcatcher | Protein Alignment & Profiling Tool",
     page_icon="🧬",
     layout="centered",
 )
 
-# --- Encabezado principal ---
+# --- Header ---
 st.markdown(
     """
     <div style="text-align:center;">
         <h1 style="color:#2E86C1;">🧬 HMMcatcher</h1>
         <h3>Protein Alignment & HMM Profiling Tool</h3>
-        <p style="color:gray;">Analiza secuencias, construye perfiles HMM y valida dominios opcionalmente con Pfam.</p>
+        <p style="color:gray;">Analyze sequences, build HMM profiles, and optionally validate domains with Pfam.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 st.divider()
 
-# --- Variables globales ---
+# --- Global Variables ---
 PFAM_DB_PATH = "Pfam-A.hmm"
 TEMP_DIR = "temp_processing"
 
-# --- Función para ejecutar comandos del sistema ---
+# --- Run System Commands ---
 def run_command(command, step_name):
-    """Ejecuta un comando del sistema, maneja errores y captura la salida."""
-    with st.status(f"⏳ {step_name} en progreso...", expanded=True) as status:
+    """Executes a system command, handling errors and capturing output."""
+    with st.status(f"⏳ {step_name} in progress...", expanded=True) as status:
         try:
             result = subprocess.run(
                 command, shell=True, check=True, capture_output=True, text=True
             )
-            status.update(label=f"✅ {step_name} completado.", state="complete")
+            status.update(label=f"✅ {step_name} completed.", state="complete")
             if result.stderr:
                 st.code(result.stderr, language="text")
             return True
         except FileNotFoundError:
-            status.update(label=f"❌ Herramienta no encontrada para '{step_name}'", state="error")
-            st.error(f"Asegúrate de que '{command.split()[0]}' esté instalado.")
+            status.update(label=f"❌ Tool not found for '{step_name}'", state="error")
+            st.error(f"Make sure '{command.split()[0]}' is installed and in PATH.")
             return False
         except subprocess.CalledProcessError as e:
-            status.update(label=f"⚠️ Error en {step_name}", state="error")
+            status.update(label=f"⚠️ Error during {step_name}", state="error")
             st.code(e.stderr, language="text")
             return False
         except Exception as e:
-            status.update(label=f"⚠️ Error inesperado en {step_name}", state="error")
-            st.error(f"Ocurrió un error inesperado: {e}")
+            status.update(label=f"⚠️ Unexpected error in {step_name}", state="error")
+            st.error(f"An unexpected error occurred: {e}")
             return False
 
-# --- Función para generar nombres de archivos ---
+# --- Generate Dynamic Filenames ---
 def generate_output_filenames(input_file):
     base_name = Path(input_file).stem
     os.makedirs(TEMP_DIR, exist_ok=True)
@@ -66,7 +66,7 @@ def generate_output_filenames(input_file):
         "pfam_results": os.path.join(TEMP_DIR, f"{base_name}_pfam_scan.tsv"),
     }
 
-# --- Función para extraer secuencias ---
+# --- Extract Sequences from hmmsearch results ---
 def extract_sequences_from_results(hmm_results, database, output_file):
     protein_names = set()
     try:
@@ -82,33 +82,33 @@ def extract_sequences_from_results(hmm_results, database, output_file):
         SeqIO.write(extracted_sequences, output_file, "fasta")
         return True
     except Exception as e:
-        st.error(f"Error al extraer secuencias: {e}")
+        st.error(f"Error extracting sequences: {e}")
         return False
 
-# --- Sección de carga de archivos ---
-st.markdown("### 📂 1. Sube tus archivos")
+# --- File Upload Section ---
+st.markdown("### 📂 Step 1. Upload your files")
 col1, col2 = st.columns(2)
 FASTA_EXTENSIONS = ["fasta", "fa", "faa", "fna", "txt"]
 
 with col1:
     protein_file = st.file_uploader(
-        "Secuencias iniciales (FASTA)",
+        "Input sequences (FASTA)",
         type=FASTA_EXTENSIONS,
-        help="Secuencias proteicas para construir el perfil HMM.",
+        help="Protein sequences to build the HMM profile.",
     )
 with col2:
     database_file = st.file_uploader(
-        "Base de datos de búsqueda (FASTA)",
+        "Search database (FASTA)",
         type=FASTA_EXTENSIONS,
-        help="Base de datos de proteínas donde buscarás los homólogos.",
+        help="Protein database where homologs will be searched.",
     )
 
 st.divider()
 
-# --- Ejecución principal ---
-if st.button("🚀 Iniciar Flujo de Análisis", type="primary"):
+# --- Main Execution ---
+if st.button("🚀 Run Analysis", type="primary"):
     if not protein_file or not database_file:
-        st.warning("⚠️ Por favor, sube ambos archivos FASTA para continuar.")
+        st.warning("⚠️ Please upload both FASTA files to continue.")
         st.stop()
 
     protein_filename = os.path.join(TEMP_DIR, "temp_protein_input.fasta")
@@ -122,84 +122,88 @@ if st.button("🚀 Iniciar Flujo de Análisis", type="primary"):
         with open(database_filename, "wb") as f:
             f.write(database_file.read())
     except Exception as e:
-        st.error(f"Error al guardar archivos: {e}")
+        st.error(f"Error saving uploaded files: {e}")
         st.stop()
 
-    st.info("🧠 Iniciando procesamiento bioinformático...")
+    st.info("🧠 Starting bioinformatics workflow...")
     st.divider()
 
-    # Paso 1: Clustal Omega
+    # Step 1: Clustal Omega
     alignment_command = f"clustalo -i {protein_filename} -o {output_files['alignment']} --outfmt=st --force"
-    if not run_command(alignment_command, "Alineación con Clustal Omega"):
+    if not run_command(alignment_command, "Protein alignment (Clustal Omega)"):
         st.stop()
 
-    # Paso 2: hmmbuild
+    # Step 2: hmmbuild
     hmmbuild_command = f"hmmbuild {output_files['hmm_profile']} {output_files['alignment']}"
-    if not run_command(hmmbuild_command, "Creación del perfil HMM"):
+    if not run_command(hmmbuild_command, "HMM profile construction"):
         st.stop()
 
-    # Paso 3: hmmsearch
+    # Step 3: hmmsearch
     hmmsearch_command = (
         f"hmmsearch --tblout {output_files['search_results']} -E 1e-4 "
         f"{output_files['hmm_profile']} {database_filename}"
     )
-    if not run_command(hmmsearch_command, "Búsqueda HMM en la base de datos (E-value < 1e-4)"):
+    if not run_command(hmmsearch_command, "HMM database search (E-value < 1e-4)"):
         st.stop()
 
-    # Paso 4: extracción
+    # Step 4: Extract sequences
     if not extract_sequences_from_results(
         output_files["search_results"], database_filename, output_files["extracted_sequences"]
     ):
         st.stop()
-    st.success("✅ Extracción de secuencias homólogas completada.")
+    st.success("✅ Homologous sequence extraction completed.")
 
-    # Paso 5: Validación opcional con Pfam
+    # Step 5: Optional Pfam validation
     if os.path.exists(PFAM_DB_PATH):
         pfam_scan_command = (
             f"hmmscan --domtblout {output_files['pfam_results']} "
             f"{PFAM_DB_PATH} {output_files['extracted_sequences']}"
         )
-        if run_command(pfam_scan_command, "Validación de dominios con Pfam"):
+        if run_command(pfam_scan_command, "Domain validation with Pfam"):
             pfam_results_generated = True
     else:
-        st.warning("⚠️ No se encontró la base de datos Pfam-A.hmm. La validación de dominios se omitió.")
+        st.warning("⚠️ Pfam-A.hmm not found. Domain validation step skipped.")
 
     st.divider()
-    st.markdown("### 📁 Resultados listos para descargar")
+    st.markdown("### 📁 Results ready for download")
 
-    # Mostrar los botones de descarga con íconos
-    download_files = [
-        ("📊 Alineación (Stockholm)", output_files["alignment"], True),
-        ("📈 Perfil HMM", output_files["hmm_profile"], True),
-        ("📋 Resultados HMMsearch (TSV)", output_files["search_results"], True),
-        ("🧩 Secuencias Extraídas (FASTA)", output_files["extracted_sequences"], True),
-        ("🧠 Resultados Pfam (TSV)", output_files["pfam_results"], pfam_results_generated),
-    ]
-    filtered_download_files = [item for item in download_files if item[2]]
-    download_cols = st.columns(len(filtered_download_files))
+    # --- Persistent Download Section (fixed disappearing buttons) ---
+    if "download_ready" not in st.session_state:
+        st.session_state.download_ready = True
 
-    for i, (label, path, _) in enumerate(filtered_download_files):
-        try:
-            with open(path, "rb") as f:
-                download_cols[i].download_button(
-                    label, f.read(), file_name=Path(path).name, key=f"download_{i}"
-                )
-        except FileNotFoundError:
-            download_cols[i].error("Archivo no encontrado.")
+    if st.session_state.download_ready:
+        download_files = [
+            ("📊 Alignment (Stockholm)", output_files["alignment"], True),
+            ("📈 HMM Profile", output_files["hmm_profile"], True),
+            ("📋 HMMsearch Results (TSV)", output_files["search_results"], True),
+            ("🧩 Extracted Sequences (FASTA)", output_files["extracted_sequences"], True),
+            ("🧠 Pfam Results (TSV)", output_files["pfam_results"], pfam_results_generated),
+        ]
+        filtered_download_files = [item for item in download_files if item[2]]
+        download_cols = st.columns(len(filtered_download_files))
+
+        for i, (label, path, _) in enumerate(filtered_download_files):
+            try:
+                with open(path, "rb") as f:
+                    download_cols[i].download_button(
+                        label, f.read(), file_name=Path(path).name, key=f"download_{i}"
+                    )
+            except FileNotFoundError:
+                download_cols[i].error("File not found.")
 
     st.divider()
     try:
         shutil.rmtree(TEMP_DIR)
-        st.info(f"🧹 Archivos temporales eliminados de '{TEMP_DIR}'.")
+        st.info(f"🧹 Temporary files removed from '{TEMP_DIR}'.")
     except Exception:
         pass
 
-# --- Pie de página ---
+# --- Footer ---
 st.markdown(
     """
     <hr>
     <div style="text-align:center; color:gray;">
-        <small>Developed with ❤️ by Erick Arroyo · Version Beta · Powered by Streamlit & HMMER</small>
+        <small>Developed with ❤️ by Erick Arroyo · Beta Version · Powered by Streamlit & HMMER</small>
     </div>
     """,
     unsafe_allow_html=True,
