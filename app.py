@@ -17,13 +17,39 @@ st.markdown(
     """
     <div style="text-align:center;">
         <h1 style="color:#2E86C1;">🧬 HMMcatcher</h1>
-        <h3>Protein Alignment & HMM Profiling Tool</h3>
-        <p style="color:gray;">Analyze sequences, build HMM profiles, and optionally validate domains with Pfam.</p>
+        <h3>Protein Family Discovery & HMM Profiling</h3>
+        <p style="color:gray; font-size: 1.1em; margin-top: 10px;">
+            This tool facilitates the search for <b>protein families, transcription factors, or any protein of interest</b> 
+            by utilizing <b>known orthologous sequences</b> provided in <b>FASTA format</b>. 
+            The algorithm subsequently constructs a <b>Hidden Markov Model (HMM)</b> profile 
+            to enable sensitive searching within <b>unannotated proteomes</b>.
+        </p>
+        <p style="color:#5D6D7E; font-style:italic;">
+            HMMcatcher integrates Clustal Omega and HMMER in a streamlined Streamlit interface,
+            making complex bioinformatics analyses accessible to non-specialists.
+        </p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 st.divider()
+
+# --- Citation Info (Sidebar) ---
+st.sidebar.markdown("## 📚 How to Cite")
+st.sidebar.markdown(
+    """
+    **Cita Sugerida (Suggested Citation):**
+    
+    Arroyo-Álvarez, E. (2025). HMMcatcher (v0.1-beta) [Computer software]. Zenodo.
+    
+    <a href="https://doi.org/10.5281/zenodo.17266955" target="_blank" style="color: #2E86C1; text-decoration: none;">
+        https://doi.org/10.5281/zenodo.17266955
+    </a>
+    """,
+    unsafe_allow_html=True
+)
+st.sidebar.markdown("---")
+
 
 # --- Global Variables ---
 PFAM_DB_PATH = "Pfam-A.hmm"
@@ -167,7 +193,7 @@ if st.button("🚀 Run Analysis", type="primary"):
     st.divider()
     st.markdown("### 📁 Results ready for download")
 
-    # --- Persistent Download Section (fixed disappearing buttons) ---
+    # --- Persistent Download Section ---
     if "download_ready" not in st.session_state:
         st.session_state.download_ready = True
 
@@ -203,7 +229,11 @@ st.markdown(
     """
     <hr>
     <div style="text-align:center; color:gray;">
-        <small>Developed with ❤️ by Erick Arroyo · Beta Version · Powered by Streamlit & HMMER</small>
+        <small>
+            Developed by <b>Erick Arroyo</b> · Center for Scientific Research of Yucatán (CICY) <br>
+            Contact: <a href="mailto:erick.arroyo@cicy.mx">erick.arroyo@cicy.mx</a> <br>
+            <i>Beta version – Powered by Streamlit, HMMER & Clustal Omega.</i>
+        </small>
     </div>
     """,
     unsafe_allow_html=True,
