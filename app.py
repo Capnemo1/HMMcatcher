@@ -7,6 +7,7 @@ from Bio import SeqIO
 
 import hmmer_tools as hmmer
 import interproscan_client as interpro
+import visit_counter
 
 # --- Initial Configuration ---
 st.set_page_config(
@@ -52,6 +53,19 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 st.sidebar.markdown("---")
+
+# --- Visit Counter (best-effort; silently absent if not configured) ---
+if "visit_count" not in st.session_state:
+    try:
+        api_key = st.secrets.get("COUNTERAPI_KEY")
+        workspace = st.secrets.get("COUNTERAPI_WORKSPACE", visit_counter.DEFAULT_WORKSPACE)
+        counter_name = st.secrets.get("COUNTERAPI_COUNTER", visit_counter.DEFAULT_COUNTER)
+    except Exception:
+        api_key, workspace, counter_name = None, visit_counter.DEFAULT_WORKSPACE, visit_counter.DEFAULT_COUNTER
+    st.session_state.visit_count = visit_counter.record_visit(api_key, workspace, counter_name)
+
+if st.session_state.visit_count is not None:
+    st.sidebar.caption(f"👁️ {st.session_state.visit_count:,} visits")
 
 EVALUE_OPTIONS = ["1e-3", "1e-4", "1e-5", "1e-10", "1e-20", "1e-30"]
 FASTA_EXTENSIONS = ["fasta", "fa", "faa", "fna", "txt"]
