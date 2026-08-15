@@ -1,5 +1,6 @@
 streamlit>=1.31.0
 biopython>=1.83
+requests>=2.31.0
 
 # IMPORTANT NOTE:
 # The following commands must be installed in the server environment (they are not Python packages)
