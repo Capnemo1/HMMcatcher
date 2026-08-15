@@ -56,16 +56,22 @@ st.sidebar.markdown(
 st.sidebar.markdown("---")
 
 # --- Visit Counter (best-effort; silently absent if not configured) ---
-if "visit_count" not in st.session_state:
+# Only a *successful* call locks in "don't count again this session" -- a failed
+# attempt (e.g. a transient API hiccup) retries on the next rerun instead of
+# permanently showing nothing for the rest of that browser session.
+if "visit_recorded" not in st.session_state:
     try:
         api_key = st.secrets.get("COUNTERAPI_KEY")
         workspace = st.secrets.get("COUNTERAPI_WORKSPACE", visit_counter.DEFAULT_WORKSPACE)
         counter_name = st.secrets.get("COUNTERAPI_COUNTER", visit_counter.DEFAULT_COUNTER)
     except Exception:
         api_key, workspace, counter_name = None, visit_counter.DEFAULT_WORKSPACE, visit_counter.DEFAULT_COUNTER
-    st.session_state.visit_count = visit_counter.record_visit(api_key, workspace, counter_name)
+    count = visit_counter.record_visit(api_key, workspace, counter_name)
+    if count is not None:
+        st.session_state.visit_recorded = True
+        st.session_state.visit_count = count
 
-if st.session_state.visit_count is not None:
+if st.session_state.get("visit_count") is not None:
     st.sidebar.caption(f"👁️ {st.session_state.visit_count:,} visits")
 
 EVALUE_OPTIONS = ["1e-3", "1e-4", "1e-5", "1e-10", "1e-20", "1e-30"]
