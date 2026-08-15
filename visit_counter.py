@@ -11,8 +11,10 @@ broken or unconfigured counter never breaks the rest of the app.
 import requests
 
 BASE_URL = "https://api.counterapi.dev/v2"
-DEFAULT_WORKSPACE = "hmmcatcher"
-DEFAULT_COUNTER = "visits"
+# These are slugs (not secrets) from the CounterAPI dashboard: Team > Counter.
+# The dashboard's pretty URL omits the numeric suffix that the API itself requires.
+DEFAULT_WORKSPACE = "erick-arroyos-team-5112"
+DEFAULT_COUNTER = "first-counter-5112"
 REQUEST_TIMEOUT_SECONDS = 3
 
 
