@@ -114,9 +114,10 @@ if search_mode == "Build HMM from reference proteins":
 else:
     with col1:
         hmm_file = st.file_uploader(
-            "HMM profile (.hmm)",
-            type=["hmm"],
-            help="A pre-built HMM profile, e.g. downloaded from PANTHER.",
+            "HMM profile (.hmm or .txt)",
+            type=["hmm", "txt"],
+            help="A pre-built HMM profile, e.g. downloaded from PANTHER (PANTHER exports these as .txt, "
+            "but the content is a standard HMM file).",
         )
 with col2:
     proteome_file = st.file_uploader(
@@ -134,17 +135,27 @@ evalue = float(evalue_label)
 
 st.divider()
 
-# --- Step 4: InterProScan validation ---
-st.markdown("### 🧠 Step 4. Domain validation (InterProScan)")
-interpro_email = st.text_input(
-    "Email (required by EBI InterProScan)",
-    help="EBI requires an email address to track submitted jobs.",
+# --- Step 4: InterProScan validation (optional) ---
+st.markdown("### 🧠 Step 4. Domain validation (InterProScan) — optional")
+run_interpro = st.checkbox(
+    "Validate extracted candidates with InterProScan",
+    value=False,
+    help="Not required to run the analysis. The HMM search results and extracted FASTA are always "
+    "produced regardless of this option, e.g. for manual genome-wide curation.",
 )
-max_interpro_sequences = st.number_input("Max candidate sequences to validate", min_value=1, value=20, step=1)
-st.caption(
-    "InterProScan jobs run one sequence at a time and typically take 1-5 minutes each, "
-    "so validating many candidates can take a while."
-)
+interpro_email = None
+max_interpro_sequences = 20
+if run_interpro:
+    interpro_email = st.text_input(
+        "Email (required by EBI InterProScan)",
+        help="EBI requires an email address to track submitted jobs.",
+    )
+    max_interpro_sequences = st.number_input("Max candidate sequences to validate", min_value=1, value=20, step=1)
+    st.caption(
+        "InterProScan jobs run one sequence at a time and typically take 1-5 minutes each, "
+        "so validating many candidates can take a while. If this step fails or times out, "
+        "the HMM search results and extracted sequences remain available for download."
+    )
 
 st.divider()
 
@@ -157,13 +168,15 @@ if st.button("🚀 Run Analysis", type="primary"):
     if not inputs_ok:
         st.warning("⚠️ Please upload all required files for the selected search strategy.")
         st.stop()
-    if not interpro_email:
-        st.warning("⚠️ Please provide an email address for InterProScan.")
+    if run_interpro and not interpro_email:
+        st.warning("⚠️ Please provide an email address to run InterProScan, or uncheck that option to skip it.")
         st.stop()
 
     workdir = get_workdir()
     proteome_path = save_upload(proteome_file, workdir / "target_proteome.fasta")
 
+    # --- Essential pipeline: HMM search + extraction. Always run; results are kept even if the
+    # optional InterProScan step below fails. ---
     try:
         if search_mode == "Build HMM from reference proteins":
             base_name = Path(reference_file.name).stem
@@ -197,48 +210,47 @@ if st.button("🚀 Run Analysis", type="primary"):
             proteome_path,
             paths["extracted_sequences"],
         )
-
-        interpro_results_path = None
-        if hits:
-            candidates = list(SeqIO.parse(paths["extracted_sequences"], "fasta"))
-            capped_candidates = candidates[: int(max_interpro_sequences)]
-            if len(candidates) > len(capped_candidates):
-                st.warning(
-                    f"⚠️ {len(candidates)} candidates found; validating only the first "
-                    f"{len(capped_candidates)} with InterProScan (raise the limit above to validate more)."
-                )
-
-            with st.status(f"🧠 Validating {len(capped_candidates)} sequence(s) with InterProScan...", expanded=True) as status:
-                progress_bar = st.progress(0.0)
-
-                def update_progress(done, total, record_id):
-                    progress_bar.progress(done / total, text=f"InterProScan: {record_id} ({done}/{total})")
-
-                try:
-                    interpro.run_interproscan_batch(
-                        capped_candidates, interpro_email, paths["interproscan_results"], update_progress
-                    )
-                    status.update(label="✅ InterProScan validation completed.", state="complete")
-                except interpro.InterProScanError as e:
-                    status.update(label="⚠️ Error during InterProScan validation", state="error")
-                    st.code(str(e), language="text")
-                    raise
-            interpro_results_path = paths["interproscan_results"]
-        else:
-            st.info("ℹ️ No candidates passed the E-value threshold; skipping InterProScan.")
-
-        st.session_state.results = {
-            "hits": hits,
-            "paths": {
-                "alignment": alignment_path,
-                "hmm_profile": paths["hmm_profile"],
-                "search_results": paths["search_results"],
-                "extracted_sequences": paths["extracted_sequences"],
-                "interproscan_results": interpro_results_path,
-            },
-        }
-    except (hmmer.ToolError, interpro.InterProScanError):
+    except hmmer.ToolError:
         st.stop()
+
+    st.session_state.results = {
+        "hits": hits,
+        "paths": {
+            "alignment": alignment_path,
+            "hmm_profile": paths["hmm_profile"],
+            "search_results": paths["search_results"],
+            "extracted_sequences": paths["extracted_sequences"],
+            "interproscan_results": None,
+        },
+    }
+
+    # --- Optional InterProScan validation. A failure here does not remove the results above. ---
+    if run_interpro and hits:
+        candidates = list(SeqIO.parse(paths["extracted_sequences"], "fasta"))
+        capped_candidates = candidates[: int(max_interpro_sequences)]
+        if len(candidates) > len(capped_candidates):
+            st.warning(
+                f"⚠️ {len(candidates)} candidates found; validating only the first "
+                f"{len(capped_candidates)} with InterProScan (raise the limit above to validate more)."
+            )
+
+        with st.status(f"🧠 Validating {len(capped_candidates)} sequence(s) with InterProScan...", expanded=True) as status:
+            progress_bar = st.progress(0.0)
+
+            def update_progress(done, total, record_id):
+                progress_bar.progress(done / total, text=f"InterProScan: {record_id} ({done}/{total})")
+
+            try:
+                interpro.run_interproscan_batch(
+                    capped_candidates, interpro_email, paths["interproscan_results"], update_progress
+                )
+                status.update(label="✅ InterProScan validation completed.", state="complete")
+                st.session_state.results["paths"]["interproscan_results"] = paths["interproscan_results"]
+            except interpro.InterProScanError as e:
+                status.update(label="⚠️ InterProScan validation failed (other results are still available below)", state="error")
+                st.code(str(e), language="text")
+    elif run_interpro and not hits:
+        st.info("ℹ️ No candidates passed the E-value threshold; skipping InterProScan.")
 
 # --- Results (persists across reruns, e.g. clicking a download button) ---
 if st.session_state.get("results"):
