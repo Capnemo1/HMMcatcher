@@ -1,13 +1,16 @@
-import os
-import subprocess
 import shutil
+import tempfile
 from pathlib import Path
-from Bio import SeqIO
+
 import streamlit as st
+from Bio import SeqIO
+
+import hmmer_tools as hmmer
+import interproscan_client as interpro
 
 # --- Initial Configuration ---
 st.set_page_config(
-    page_title="HMMcatcher | Protein Alignment & Profiling Tool",
+    page_title="HMMcatcher | Protein Family Mining Tool",
     page_icon="🧬",
     layout="centered",
 )
@@ -19,14 +22,14 @@ st.markdown(
         <h1 style="color:#2E86C1;">🧬 HMMcatcher</h1>
         <h3>Protein Family Discovery & HMM Profiling</h3>
         <p style="color:gray; font-size: 1.1em; margin-top: 10px;">
-            This tool facilitates the search for <b>protein families, transcription factors, or any protein of interest</b> 
-            by utilizing <b>known orthologous sequences</b> provided in <b>FASTA format</b>. 
-            The algorithm subsequently constructs a <b>Hidden Markov Model (HMM)</b> profile 
-            to enable sensitive searching within <b>unannotated proteomes</b>.
+            This tool facilitates the search for <b>protein families, transcription factors, or any protein of interest</b>
+            by <b>building your own HMM profile</b> from known orthologous sequences, or by
+            <b>using an existing HMM profile</b> (e.g. downloaded from PANTHER), to search sensitively
+            within <b>unannotated proteomes</b>.
         </p>
         <p style="color:#5D6D7E; font-style:italic;">
-            HMMcatcher integrates Clustal Omega and HMMER in a streamlined Streamlit interface,
-            making complex bioinformatics analyses accessible to non-specialists.
+            HMMcatcher integrates Clustal Omega, HMMER, and EBI InterProScan in a streamlined
+            Streamlit interface, making complex bioinformatics analyses accessible to non-specialists.
         </p>
     </div>
     """,
@@ -39,190 +42,246 @@ st.sidebar.markdown("## 📚 How to Cite")
 st.sidebar.markdown(
     """
     **Cita Sugerida (Suggested Citation):**
-    
+
     Arroyo-Álvarez, E. (2025). HMMcatcher (v0.1-beta) [Computer software]. Zenodo.
-    
+
     <a href="https://doi.org/10.5281/zenodo.17266955" target="_blank" style="color: #2E86C1; text-decoration: none;">
         https://doi.org/10.5281/zenodo.17266955
     </a>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 st.sidebar.markdown("---")
 
-
-# --- Global Variables ---
-PFAM_DB_PATH = "Pfam-A.hmm"
-TEMP_DIR = "temp_processing"
-
-# --- Run System Commands ---
-def run_command(command, step_name):
-    """Executes a system command, handling errors and capturing output."""
-    with st.status(f"⏳ {step_name} in progress...", expanded=True) as status:
-        try:
-            result = subprocess.run(
-                command, shell=True, check=True, capture_output=True, text=True
-            )
-            status.update(label=f"✅ {step_name} completed.", state="complete")
-            if result.stderr:
-                st.code(result.stderr, language="text")
-            return True
-        except FileNotFoundError:
-            status.update(label=f"❌ Tool not found for '{step_name}'", state="error")
-            st.error(f"Make sure '{command.split()[0]}' is installed and in PATH.")
-            return False
-        except subprocess.CalledProcessError as e:
-            status.update(label=f"⚠️ Error during {step_name}", state="error")
-            st.code(e.stderr, language="text")
-            return False
-        except Exception as e:
-            status.update(label=f"⚠️ Unexpected error in {step_name}", state="error")
-            st.error(f"An unexpected error occurred: {e}")
-            return False
-
-# --- Generate Dynamic Filenames ---
-def generate_output_filenames(input_file):
-    base_name = Path(input_file).stem
-    os.makedirs(TEMP_DIR, exist_ok=True)
-    return {
-        "alignment": os.path.join(TEMP_DIR, f"{base_name}_aligned.sto"),
-        "hmm_profile": os.path.join(TEMP_DIR, f"{base_name}_profile.hmm"),
-        "search_results": os.path.join(TEMP_DIR, f"{base_name}_search_results.tsv"),
-        "extracted_sequences": os.path.join(TEMP_DIR, f"{base_name}_extracted_sequences.fasta"),
-        "pfam_results": os.path.join(TEMP_DIR, f"{base_name}_pfam_scan.tsv"),
-    }
-
-# --- Extract Sequences from hmmsearch results ---
-def extract_sequences_from_results(hmm_results, database, output_file):
-    protein_names = set()
-    try:
-        with open(hmm_results, "r") as results_file:
-            for line in results_file:
-                if not line.startswith("#") and line.strip():
-                    columns = line.split()
-                    protein_names.add(columns[0])
-
-        extracted_sequences = [
-            record for record in SeqIO.parse(database, "fasta") if record.id in protein_names
-        ]
-        SeqIO.write(extracted_sequences, output_file, "fasta")
-        return True
-    except Exception as e:
-        st.error(f"Error extracting sequences: {e}")
-        return False
-
-# --- File Upload Section ---
-st.markdown("### 📂 Step 1. Upload your files")
-col1, col2 = st.columns(2)
+EVALUE_OPTIONS = ["1e-3", "1e-4", "1e-5", "1e-10", "1e-20", "1e-30"]
 FASTA_EXTENSIONS = ["fasta", "fa", "faa", "fna", "txt"]
 
-with col1:
-    protein_file = st.file_uploader(
-        "Input sequences (FASTA)",
-        type=FASTA_EXTENSIONS,
-        help="Protein sequences to build the HMM profile.",
-    )
+
+def get_workdir():
+    if "workdir" not in st.session_state:
+        st.session_state.workdir = tempfile.mkdtemp(prefix="hmmcatcher_")
+    return Path(st.session_state.workdir)
+
+
+def reset_session():
+    workdir = st.session_state.get("workdir")
+    if workdir and Path(workdir).exists():
+        shutil.rmtree(workdir, ignore_errors=True)
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+
+
+def save_upload(uploaded_file, destination):
+    with open(destination, "wb") as fh:
+        fh.write(uploaded_file.getbuffer())
+    return destination
+
+
+def run_step(step_name, fn, *args, **kwargs):
+    """Run fn inside a labeled st.status block, matching the app's existing step UI."""
+    with st.status(f"⏳ {step_name} in progress...", expanded=True) as status:
+        try:
+            result = fn(*args, **kwargs)
+            status.update(label=f"✅ {step_name} completed.", state="complete")
+            return result
+        except (hmmer.ToolError, interpro.InterProScanError) as e:
+            status.update(label=f"⚠️ Error during {step_name}", state="error")
+            st.code(str(e), language="text")
+            raise
+
+
+# --- Step 1: search strategy ---
+st.markdown("### 🧭 Step 1. Choose search strategy")
+search_mode = st.radio(
+    "Search strategy",
+    ["Build HMM from reference proteins", "Use existing HMM profile"],
+    label_visibility="collapsed",
+    horizontal=True,
+)
+
+# --- Step 2: uploads ---
+st.markdown("### 📂 Step 2. Upload your files")
+reference_file = None
+hmm_file = None
+col1, col2 = st.columns(2)
+if search_mode == "Build HMM from reference proteins":
+    with col1:
+        reference_file = st.file_uploader(
+            "Reference proteins (FASTA)",
+            type=FASTA_EXTENSIONS,
+            help="Known orthologous protein sequences to build the HMM profile.",
+        )
+else:
+    with col1:
+        hmm_file = st.file_uploader(
+            "HMM profile (.hmm or .txt)",
+            type=["hmm", "txt"],
+            help="A pre-built HMM profile, e.g. downloaded from PANTHER (PANTHER exports these as .txt, "
+            "but the content is a standard HMM file).",
+        )
 with col2:
-    database_file = st.file_uploader(
-        "Search database (FASTA)",
+    proteome_file = st.file_uploader(
+        "Target proteome (FASTA)",
         type=FASTA_EXTENSIONS,
-        help="Protein database where homologs will be searched.",
+        help="Protein database where candidates will be searched.",
+    )
+
+st.divider()
+
+# --- Step 3: search parameters ---
+st.markdown("### ⚙️ Step 3. Search parameters")
+evalue_label = st.selectbox("E-value threshold", EVALUE_OPTIONS, index=2)
+evalue = float(evalue_label)
+
+st.divider()
+
+# --- Step 4: InterProScan validation (optional) ---
+st.markdown("### 🧠 Step 4. Domain validation (InterProScan) — optional")
+run_interpro = st.checkbox(
+    "Validate extracted candidates with InterProScan",
+    value=False,
+    help="Not required to run the analysis. The HMM search results and extracted FASTA are always "
+    "produced regardless of this option, e.g. for manual genome-wide curation.",
+)
+interpro_email = None
+max_interpro_sequences = 20
+if run_interpro:
+    interpro_email = st.text_input(
+        "Email (required by EBI InterProScan)",
+        help="EBI requires an email address to track submitted jobs.",
+    )
+    max_interpro_sequences = st.number_input("Max candidate sequences to validate", min_value=1, value=20, step=1)
+    st.caption(
+        "InterProScan jobs run one sequence at a time and typically take 1-5 minutes each, "
+        "so validating many candidates can take a while. If this step fails or times out, "
+        "the HMM search results and extracted sequences remain available for download."
     )
 
 st.divider()
 
 # --- Main Execution ---
 if st.button("🚀 Run Analysis", type="primary"):
-    if not protein_file or not database_file:
-        st.warning("⚠️ Please upload both FASTA files to continue.")
-        st.stop()
-
-    protein_filename = os.path.join(TEMP_DIR, "temp_protein_input.fasta")
-    database_filename = os.path.join(TEMP_DIR, "temp_protein_database.fasta")
-    output_files = generate_output_filenames(protein_filename)
-    pfam_results_generated = False
-
-    try:
-        with open(protein_filename, "wb") as f:
-            f.write(protein_file.read())
-        with open(database_filename, "wb") as f:
-            f.write(database_file.read())
-    except Exception as e:
-        st.error(f"Error saving uploaded files: {e}")
-        st.stop()
-
-    st.info("🧠 Starting bioinformatics workflow...")
-    st.divider()
-
-    # Step 1: Clustal Omega
-    alignment_command = f"clustalo -i {protein_filename} -o {output_files['alignment']} --outfmt=st --force"
-    if not run_command(alignment_command, "Protein alignment (Clustal Omega)"):
-        st.stop()
-
-    # Step 2: hmmbuild
-    hmmbuild_command = f"hmmbuild {output_files['hmm_profile']} {output_files['alignment']}"
-    if not run_command(hmmbuild_command, "HMM profile construction"):
-        st.stop()
-
-    # Step 3: hmmsearch
-    hmmsearch_command = (
-        f"hmmsearch --tblout {output_files['search_results']} -E 1e-4 "
-        f"{output_files['hmm_profile']} {database_filename}"
+    inputs_ok = proteome_file is not None and (
+        (search_mode == "Build HMM from reference proteins" and reference_file is not None)
+        or (search_mode == "Use existing HMM profile" and hmm_file is not None)
     )
-    if not run_command(hmmsearch_command, "HMM database search (E-value < 1e-4)"):
+    if not inputs_ok:
+        st.warning("⚠️ Please upload all required files for the selected search strategy.")
+        st.stop()
+    if run_interpro and not interpro_email:
+        st.warning("⚠️ Please provide an email address to run InterProScan, or uncheck that option to skip it.")
         st.stop()
 
-    # Step 4: Extract sequences
-    if not extract_sequences_from_results(
-        output_files["search_results"], database_filename, output_files["extracted_sequences"]
-    ):
-        st.stop()
-    st.success("✅ Homologous sequence extraction completed.")
+    workdir = get_workdir()
+    proteome_path = save_upload(proteome_file, workdir / "target_proteome.fasta")
 
-    # Step 5: Optional Pfam validation
-    if os.path.exists(PFAM_DB_PATH):
-        pfam_scan_command = (
-            f"hmmscan --domtblout {output_files['pfam_results']} "
-            f"{PFAM_DB_PATH} {output_files['extracted_sequences']}"
+    # --- Essential pipeline: HMM search + extraction. Always run; results are kept even if the
+    # optional InterProScan step below fails. ---
+    try:
+        if search_mode == "Build HMM from reference proteins":
+            base_name = Path(reference_file.name).stem
+            reference_path = save_upload(reference_file, workdir / "reference_proteins.fasta")
+            paths = hmmer.generate_output_filenames(workdir, base_name)
+
+            run_step("Protein alignment (Clustal Omega)", hmmer.run_clustalo, reference_path, paths["alignment"])
+            run_step("HMM profile construction (hmmbuild)", hmmer.run_hmmbuild, paths["alignment"], paths["hmm_profile"])
+            alignment_path = paths["alignment"]
+        else:
+            base_name = Path(hmm_file.name).stem
+            paths = hmmer.generate_output_filenames(workdir, base_name)
+            paths["hmm_profile"] = save_upload(hmm_file, workdir / f"{base_name}.hmm")
+            alignment_path = None
+
+        run_step(
+            f"HMM database search (E-value < {evalue_label})",
+            hmmer.run_hmmsearch,
+            paths["hmm_profile"],
+            proteome_path,
+            paths["search_results"],
+            evalue,
         )
-        if run_command(pfam_scan_command, "Domain validation with Pfam"):
-            pfam_results_generated = True
-    else:
-        st.warning("⚠️ Pfam-A.hmm not found. Domain validation step skipped.")
+        hits = hmmer.parse_hmmsearch_hits(paths["search_results"])
+        st.success(f"✅ {len(hits)} candidate(s) found at E-value <= {evalue_label}.")
 
+        run_step(
+            "Homologous sequence extraction",
+            hmmer.extract_sequences,
+            hits,
+            proteome_path,
+            paths["extracted_sequences"],
+        )
+    except hmmer.ToolError:
+        st.stop()
+
+    st.session_state.results = {
+        "hits": hits,
+        "paths": {
+            "alignment": alignment_path,
+            "hmm_profile": paths["hmm_profile"],
+            "search_results": paths["search_results"],
+            "extracted_sequences": paths["extracted_sequences"],
+            "interproscan_results": None,
+        },
+    }
+
+    # --- Optional InterProScan validation. A failure here does not remove the results above. ---
+    if run_interpro and hits:
+        candidates = list(SeqIO.parse(paths["extracted_sequences"], "fasta"))
+        capped_candidates = candidates[: int(max_interpro_sequences)]
+        if len(candidates) > len(capped_candidates):
+            st.warning(
+                f"⚠️ {len(candidates)} candidates found; validating only the first "
+                f"{len(capped_candidates)} with InterProScan (raise the limit above to validate more)."
+            )
+
+        with st.status(f"🧠 Validating {len(capped_candidates)} sequence(s) with InterProScan...", expanded=True) as status:
+            progress_bar = st.progress(0.0)
+
+            def update_progress(done, total, record_id):
+                progress_bar.progress(done / total, text=f"InterProScan: {record_id} ({done}/{total})")
+
+            try:
+                interpro.run_interproscan_batch(
+                    capped_candidates, interpro_email, paths["interproscan_results"], update_progress
+                )
+                status.update(label="✅ InterProScan validation completed.", state="complete")
+                st.session_state.results["paths"]["interproscan_results"] = paths["interproscan_results"]
+            except interpro.InterProScanError as e:
+                status.update(label="⚠️ InterProScan validation failed (other results are still available below)", state="error")
+                st.code(str(e), language="text")
+    elif run_interpro and not hits:
+        st.info("ℹ️ No candidates passed the E-value threshold; skipping InterProScan.")
+
+# --- Results (persists across reruns, e.g. clicking a download button) ---
+if st.session_state.get("results"):
+    results = st.session_state.results
     st.divider()
     st.markdown("### 📁 Results ready for download")
 
-    # --- Persistent Download Section ---
-    if "download_ready" not in st.session_state:
-        st.session_state.download_ready = True
+    if results["hits"]:
+        st.dataframe(results["hits"], use_container_width=True)
+    else:
+        st.info("No candidate proteins passed the E-value threshold.")
 
-    if st.session_state.download_ready:
-        download_files = [
-            ("📊 Alignment (Stockholm)", output_files["alignment"], True),
-            ("📈 HMM Profile", output_files["hmm_profile"], True),
-            ("📋 HMMsearch Results (TSV)", output_files["search_results"], True),
-            ("🧩 Extracted Sequences (FASTA)", output_files["extracted_sequences"], True),
-            ("🧠 Pfam Results (TSV)", output_files["pfam_results"], pfam_results_generated),
-        ]
-        filtered_download_files = [item for item in download_files if item[2]]
-        download_cols = st.columns(len(filtered_download_files))
-
-        for i, (label, path, _) in enumerate(filtered_download_files):
-            try:
-                with open(path, "rb") as f:
-                    download_cols[i].download_button(
-                        label, f.read(), file_name=Path(path).name, key=f"download_{i}"
-                    )
-            except FileNotFoundError:
-                download_cols[i].error("File not found.")
+    paths = results["paths"]
+    download_items = [
+        ("📊 Alignment (Stockholm)", paths["alignment"]),
+        ("📈 HMM Profile", paths["hmm_profile"]),
+        ("📋 HMMsearch Results (TSV)", paths["search_results"]),
+        ("🧩 Extracted Sequences (FASTA)", paths["extracted_sequences"]),
+        ("🧠 InterProScan Results (TSV)", paths["interproscan_results"]),
+    ]
+    available = [(label, path) for label, path in download_items if path and Path(path).exists()]
+    if available:
+        download_cols = st.columns(len(available))
+        for col, (label, path) in zip(download_cols, available):
+            with open(path, "rb") as fh:
+                col.download_button(label, fh.read(), file_name=Path(path).name, key=f"download_{label}")
 
     st.divider()
-    try:
-        shutil.rmtree(TEMP_DIR)
-        st.info(f"🧹 Temporary files removed from '{TEMP_DIR}'.")
-    except Exception:
-        pass
+    if st.button("🔄 Start new analysis"):
+        reset_session()
+        st.rerun()
 
 # --- Footer ---
 st.markdown(
@@ -232,7 +291,7 @@ st.markdown(
         <small>
             Developed by <b>Erick Arroyo</b> · Center for Scientific Research of Yucatán (CICY) <br>
             Contact: <a href="mailto:erick.arroyo@cicy.mx">erick.arroyo@cicy.mx</a> <br>
-            <i>Beta version – Powered by Streamlit, HMMER & Clustal Omega.</i>
+            <i>Beta version – Powered by Streamlit, HMMER, Clustal Omega & InterProScan.</i>
         </small>
     </div>
     """,
