@@ -14,6 +14,7 @@ st.set_page_config(
     page_title="HMMcatcher | Protein Family Mining Tool",
     page_icon="🧬",
     layout="centered",
+    initial_sidebar_state="expanded",
 )
 
 # --- Header ---
